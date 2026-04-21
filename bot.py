@@ -1,27 +1,14 @@
 import requests
 from bs4 import BeautifulSoup
-import json
-import time
-import os
+import json, time, os
 
-# ===== تنظیمات =====
-TELEGRAM_TOKEN = "TOKEN_BOT_TELEGRAMET"  # از BotFather
-CHAT_ID = "CHAT_ID_KHODet"               # از @userinfobot
-SESSION_COOKIE = "SESSION_COOKIE_INJAAA" # از قدم ۱
+TOKEN = os.environ["TELEGRAM_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
+COOKIE = os.environ["SESSION_COOKIE"]
 
-URL = "https://www.inberlinwohnen.de/mein-bereich/wohnungsfinder?q=eyJpdi..."  # لینک کامل خودت
+URL = "https://www.inberlinwohnen.de/mein-bereich/wohnungsfinder?q=eyJpdiI6IjQxMWFqaVpaTVNWZE94M2ZYN3lDTmc9PSIsInZhbHVlIjoicVdyZmNsZGd1OVg5MDVKQ2ZLL1lScGV2ZmhCSUMwdTYwdjlYT3MvMDFqL0taMDNQMEF4bitUSGZZMTNheUFRNDIxQnRFYXJmcm13L3FqRUlVcEtyYjJPSHl1TUkxck9mak1OdHRFdE0wS3pKMDRDay9PS0hvVE5LRnBtaXpwb0JKaldhOWFkUmRtS2oxY1kxVCsxUDNGZDU0bkNwajh4NjA5Nk8vZHpkdnBqOHlHSnE0dzQ0RFNuK2N0Mk14U0tOVThVY1ltU2hrSExZaDBvNzFtMG83MUNmL0lGVVZoWVc0V1cyNWdpeVJDdmdCOVVFaUwrOHBGVHZCeWlMUUhpaFdiK3ByTEJObk9ncVNnK29wbzQwYzFNTkEwR2ZZNXpReVZsR2k1akhPbDM0aWFxcDVpZm5nRnVXWVdkb3d3R014RHdrWFdVZi9YV2ZGSlBmd1ZrOXl4bEN6WHZNRGNGSFN2akliVG90YXYvNkErdVNCS2lmS1l6VE9SU0JEZ1owTDFSQ1ZLVVdKVWdBMmhBdlJoZGVMZlRYUkl5UmwrSFdkUHUvYnVONFA5eC9LVG1kKy8welQ2OUx2MURaYlIyMll4Y1BRRW9HbHN5Z3g0WjBsUDhmcUFFM0Q0aHlFeVZjTTBNWVRkR1czZEU9IiwibWFjIjoiN2M1MTQ0YzZjMjliOThkYzc1OTFhOTIyZDBhYTVhNDMyMWU2Y2Q0NDQ2OTRhZTE2NGUzYjM1NWY4NjEyZDU0YiIsInRhZyI6IiJ9"
 
-CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", 300))  # 5 دقیقه
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept-Language": "de-DE,de;q=0.9",
-}
-
-COOKIES = {
-    "inberlinwohnen_session": os.environ.get("SESSION_COOKIE", SESSION_COOKIE),
-}
-
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 SEEN_FILE = "seen_ids.json"
 
 def load_seen():
@@ -35,72 +22,67 @@ def save_seen(ids):
         json.dump(list(ids), f)
 
 def send_telegram(msg):
-    url = f"https://api.telegram.org/bot{os.environ.get('TELEGRAM_TOKEN', TELEGRAM_TOKEN)}/sendMessage"
-    requests.post(url, data={
-        "chat_id": os.environ.get("CHAT_ID", CHAT_ID),
-        "text": msg,
-        "parse_mode": "HTML"
-    })
+    requests.post(
+        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+        data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"}
+    )
 
 def fetch_listings():
-    r = requests.get(URL, cookies=COOKIES, headers=HEADERS, timeout=30)
+    r = requests.get(
+        URL,
+        cookies={"inberlinwohnen_session": COOKIE},
+        headers=HEADERS,
+        timeout=30
+    )
     soup = BeautifulSoup(r.text, "html.parser")
-    
     listings = []
-    # کارت‌های خونه رو پیدا کن
-    cards = soup.select(".wohnungsfinder-result, .apartment-card, article, .listing-item")
-    
-    for card in cards:
-        # ID یا لینک یونیک
+
+    for card in soup.select("div[id^='apartment-']"):
+        apt_id = card.get("id", "")
+        text = card.get_text(" ", strip=True)
         link = card.find("a", href=True)
-        title = card.get_text(strip=True)[:100]
-        
-        wbs = "wbs" in title.lower() or "WBS" in title
-        
         href = link["href"] if link else ""
-        uid = href or title[:50]
-        
+        wbs = "wbs" in text.lower()
+
         listings.append({
-            "id": uid,
-            "title": title,
-            "url": "https://www.inberlinwohnen.de" + href if href.startswith("/") else href,
+            "id": apt_id,
+            "text": text[:300],
+            "url": href,
             "wbs": wbs
         })
-    
+
     return listings
 
 def main():
     seen = load_seen()
-    send_telegram("🤖 Bot gestartet! Suche nach Wohnungen...")
+    send_telegram("🤖 Wohnung-Bot gestartet! Suche läuft...")
     print("Bot started.")
-    
+
     while True:
         try:
             listings = fetch_listings()
             print(f"Found {len(listings)} listings")
-            
-            new_count = 0
+
             for apt in listings:
                 if apt["id"] not in seen:
-                    if not apt["wbs"]:  # فقط بدون WBS
-                        msg = (
-                            f"🏠 <b>Neue Wohnung!</b>\n\n"
-                            f"{apt['title']}\n\n"
-                            f"🔗 {apt['url']}"
-                        )
-                        send_telegram(msg)
-                        new_count += 1
                     seen.add(apt["id"])
-            
+                    if not apt["wbs"]:
+                        url = apt["url"]
+                        if url.startswith("/"):
+                            url = "https://www.inberlinwohnen.de" + url
+                        send_telegram(
+                            f"🏠 <b>Neue Wohnung!</b>\n\n"
+                            f"{apt['text']}\n\n"
+                            f"🔗 {url}"
+                        )
+                        print(f"New listing notified: {apt['id']}")
+
             save_seen(seen)
-            if new_count == 0:
-                print("No new listings.")
-                
+
         except Exception as e:
             print(f"Error: {e}")
-            send_telegram(f"⚠️ Bot error: {e}")
-        
-        time.sleep(CHECK_INTERVAL)
+
+        time.sleep(300)
 
 if __name__ == "__main__":
     main()
