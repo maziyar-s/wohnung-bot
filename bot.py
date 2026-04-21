@@ -1,29 +1,29 @@
 import requests
-from bs4 import BeautifulSoup
-import json
-import time
 import os
+import time
+import json
 import re
 
-# ===== تنظیمات =====
-TELEGRAM_TOKEN = ""
-CHAT_ID = ""
-SESSION_COOKIE = ""
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+SESSION_COOKIE = os.getenv("SESSION_COOKIE")
 
-URL = "https://www.inberlinwohnen.de/mein-bereich/wohnungsfinder?q=eyJpdiI6IkZuYnJGa0xCT0liL1d0UFNrbTNUWUE9PSIsInZhbHVlIjoid3g4SWdPOEdmMi9BSDBQVlFOTzJSUEZTWDA3cG12c0UvR3AxcFJoNzk0c1NvMVIySEtJN0tJR2JUTFhnNC9hbjJaQ0pNUHFlaFRoa3k0Z1U5WDFkdDk5anFqbmJVV0dSRENNTFFzeDFRMEl0TkZ5SDZQUzFvYUNIdkNBMEV2VDdvZ3JVMk9IR0ZUYXZndkFUekp1aUM5cHB5QU4vbG8yUnlmNFIycEloOExxRy9Wb1NLLzBVckhzelRqZHdsSHJXeXNRRjRqSU9EUXUvUjdhaDRvd3NYQzF1VnZZdGtGVjRkOG5mZGtlVVI5ME40TThWaVM2VnZCSlhLRjBuUmE2YW04My94VC94allET0FpNmlEdVBrdkFvZnowVTR3SE52UTdpLzVsNDBaM01SRkdFd1pBcTFCOEdyajNNNFZpdnVBdDYrMUgzSElaeXZYNnRxZjh6NkdJZi8raGVTb2NVQnBlbmhqYUlCUlJUcWd4em1VbTdzcVZDelk3QWlweGRJV2RHbFlpOURDUk5wQXVaQ01DSnFsMnBkVkJXVDJRZWxUVThIWmgxa2N0QkJoMXNaQW9aaFlXM2txNTZKNzZnSGtpRmhTZysxRDVFOXM4bkhTbFpsK1QrYVJpT1VRcDQxbFpSQWc0OGg5K1U9IiwibWFjIjoiZmQwYTZhMjIzMTAyNDM5NTZhMWRlMGQ3YTE2NzA5Y2VkNDUyZTkzZjIyM2FhYTE2OGZmYjA0MjAyN2E3NGMwNyIsInRhZyI6IiJ9"
+URL = "https://www.inberlinwohnen.de/mein-bereich/wohnungsfinder?q=eyJpdiI6Ik9OQTFiU29nMEF0T2VEenVYa09mZ1E9PSIsInZhbHVlIjoiZVZqc0JONUhWU3cwSUpubEtjT2VScjFTUXVPcEpZa1hqMmRPSnlyNmd3UTZWUkR6aTd4UWxlNVMvbG9qWEFkaTZFYXducDA3MFYrV3JveDVYZVRSV3J4elE0VXJkeXNNRk10dCtNVkJlTll0ZElqbWw3aGdaY2VJNTBWR01sY1Z1YS9PUUVacjRnMlR6RUJDay9rczJHekw1elpSVHByNE9ENHFoWVlxSURPWUZJUHpEeEU5UWtJYitJR2NqL1RMd1ZEekptZk10bEVsNnR0enIveElDazlwNlRTUGtnY01La3J2K2hkSnNsVVNCblY3MkYxMmZUVitqR2pmc3I0TWxVVEpJd0d0UjRIWDU4YWl1Y0RxRjhtaHl5WFBxbnRsOS9VaS9hd04rcG91VTVHMWdSNHY0QW5MQks2d0JtSnlHKy9jLzk0UUxRaFZBV3dUM1BUbTlZdmlSY21NQ0RjejEzV2o1Vy9WWWl1VDR5NEdKaUtoZEtZbzd1dXVpMitjWjUrekJRb0sxWm1WMEhlZzVwdkkvWUE5dGtqSnNFMFFUTVJneVRSK3E1eWRJaHlKUGRPc2YwQzNSVGtISStVcTcyTGdNUWF5YkI2Y1B3TDlPdzBGTGJZa2JjMlJIdUllbExhNHorc2lTNlk9IiwibWFjIjoiZWFkMGE3MmQyYzM2OThjNzJkNDhmYTk2ODBjZTljNzNiOWZiNDNmMzJhMDk3YTQ2NjFhMTExMjFlYWUxZTA3YSIsInRhZyI6IiJ9"
 
-CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", 300))  # 5 دقیقه
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept-Language": "de-DE,de;q=0.9",
-}
-
-COOKIES = {
-    "inberlinwohnen_session": os.environ.get("SESSION_COOKIE", SESSION_COOKIE),
-}
-
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 300))  # هر 5 دقیقه
 SEEN_FILE = "seen_ids.json"
+
+
+def send_telegram(message):
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+        data={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        },
+        timeout=30
+    )
 
 
 def load_seen():
@@ -36,135 +36,135 @@ def load_seen():
     return set()
 
 
-def save_seen(ids):
+def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(ids), f, ensure_ascii=False, indent=2)
+        json.dump(list(seen), f, ensure_ascii=False, indent=2)
 
 
-def send_telegram(msg):
-    token = os.environ.get("TELEGRAM_TOKEN", TELEGRAM_TOKEN)
-    chat_id = os.environ.get("CHAT_ID", CHAT_ID)
+def get_listings():
+    headers = {
+        "Cookie": f"inberlinwohnen_session={SESSION_COOKIE}",
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Language": "de-DE,de;q=0.9"
+    }
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    requests.post(
-        url,
-        data={
-            "chat_id": chat_id,
-            "text": msg,
-            "parse_mode": "HTML"
-        },
-        timeout=30
-    )
-
-
-def clean_text(text):
-    return " ".join(text.split()).strip()
-
-
-def fetch_listings():
-    r = requests.get(URL, cookies=COOKIES, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-
+    r = requests.get(URL, headers=headers, timeout=30)
     html = r.text
-    soup = BeautifulSoup(html, "html.parser")
+
+    # برای دیباگ اگر لازم شد
+    if "wire:snapshot" not in html:
+        print("❌ snapshot not found")
+        print(html[:2000])
+        return []
+
+    matches = re.findall(r'wire:snapshot="([^"]+)"', html)
 
     listings = []
+    seen_ids_local = set()
 
-    # راه اصلی: پیدا کردن div هایی که id آنها با apartment- شروع می‌شود
-    apartment_divs = soup.select('div[id^="apartment-"]')
-
-    # اگر چیزی پیدا نشد، برای دیباگ یک تکه از HTML را چاپ کن
-    if not apartment_divs:
-        print("DEBUG: apartment divs not found")
-        print(html[:2000])
-        return listings
-
-    for div in apartment_divs:
+    for snapshot in matches:
         try:
-            div_id = div.get("id", "").strip()  # مثل apartment-16008
-            if not div_id.startswith("apartment-"):
+            snapshot = snapshot.replace("&quot;", '"')
+            data = json.loads(snapshot)
+
+            item = data.get("data", {}).get("item")
+            if not item:
                 continue
 
-            apartment_id = div_id.replace("apartment-", "").strip()
-            if not apartment_id:
+            apartment_id = str(item.get("id", "")).strip()
+            if not apartment_id or apartment_id in seen_ids_local:
                 continue
 
-            # کل متن آگهی
-            text = clean_text(div.get_text(" ", strip=True))
+            seen_ids_local.add(apartment_id)
 
-            # حذف علامت + آخر سطر اگر بود
-            if text.endswith("+"):
-                text = text[:-1].strip()
+            rooms = str(item.get("rooms", "")).strip()
+            area = str(item.get("area", "")).strip()
+            rent = str(item.get("rentNet", "")).strip()
+            street = str(item.get("street", "")).strip()
+            zipcode = str(item.get("zipCode", "")).strip()
+            district = str(item.get("district", "")).strip()
+            title = str(item.get("title", "")).strip()
+            deeplink = str(item.get("deepLink", "")).strip()
 
-            # پیدا کردن URL از deep link داخل snapshot یا هر href موجود
-            url = URL
+            address = " ".join(x for x in [street, zipcode, district] if x).strip()
+            text_parts = []
 
-            # اول سعی می‌کنیم href پیدا کنیم
-            a_tag = div.find("a", href=True)
-            if a_tag:
-                href = a_tag["href"].strip()
-                if href.startswith("/"):
-                    url = "https://www.inberlinwohnen.de" + href
-                elif href.startswith("http"):
-                    url = href
+            if title:
+                text_parts.append(title)
+            else:
+                info = " | ".join(x for x in [f"{rooms} Zimmer" if rooms else "",
+                                             f"{area} m²" if area else "",
+                                             f"{rent} €" if rent else ""] if x)
+                if info:
+                    text_parts.append(info)
 
-            # اگر href نبود، از متن HTML دنبال deepLink بگرد
-            if url == URL:
-                div_html = str(div)
-                m = re.search(r'"deepLink":"(https?:\/\/[^"]+)"', div_html)
-                if m:
-                    url = m.group(1).replace("\\/", "/")
+            if address:
+                text_parts.append(address)
 
-            wbs = "wbs" in text.lower()
+            text = " | ".join(text_parts).strip()
+            if not text:
+                text = f"Wohnung {apartment_id}"
+
+            wbs_text = f"{title} {street} {district}".lower()
+            wbs = "wbs" in wbs_text
 
             listings.append({
                 "id": apartment_id,
-                "title": text,
-                "url": url,
+                "text": text,
+                "url": deeplink if deeplink else URL,
                 "wbs": wbs
             })
 
         except Exception as e:
-            print(f"DEBUG item parse error: {e}")
+            print("parse error:", e)
             continue
 
     return listings
 
 
 def main():
+    if not TELEGRAM_TOKEN or not CHAT_ID or not SESSION_COOKIE:
+        print("❌ TELEGRAM_TOKEN یا CHAT_ID یا SESSION_COOKIE تنظیم نشده")
+        return
+
     seen = load_seen()
-    send_telegram("🤖 Bot gestartet! Suche nach Wohnungen...")
-    print("Bot started.")
+
+    try:
+        send_telegram("🤖 Bot gestartet! Suche nach Wohnungen...")
+    except Exception as e:
+        print("Telegram start message error:", e)
+
+    print("Bot started...")
 
     while True:
         try:
-            listings = fetch_listings()
+            listings = get_listings()
             print(f"Found {len(listings)} listings")
 
-            new_count = 0
+            new_items = 0
 
-            for apt in listings:
-                if apt["id"] not in seen:
-                    if not apt["wbs"]:
+            for listing in listings:
+                if listing["id"] not in seen:
+                    if not listing["wbs"]:
                         msg = (
                             f"🏠 <b>Neue Wohnung!</b>\n\n"
-                            f"{apt['title']}\n\n"
-                            f"🔗 {apt['url']}"
+                            f"{listing['text']}\n\n"
+                            f"🔗 {listing['url']}"
                         )
                         send_telegram(msg)
-                        new_count += 1
+                        new_items += 1
 
-                    seen.add(apt["id"])
+                    seen.add(listing["id"])
 
             save_seen(seen)
 
-            if new_count == 0:
+            if new_items == 0:
                 print("No new listings.")
             else:
-                print(f"Sent {new_count} new listing(s).")
+                print(f"Sent {new_items} new listing(s).")
 
         except Exception as e:
-            print(f"Error: {e}")
+            print("Error:", e)
             try:
                 send_telegram(f"⚠️ Bot error: {e}")
             except Exception:
