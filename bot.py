@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import json
 import time
 import os
+import re
 
 # ===== تنظیمات =====
 TELEGRAM_TOKEN = ""
@@ -29,8 +30,7 @@ def load_seen():
     if os.path.exists(SEEN_FILE):
         try:
             with open(SEEN_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return set(data)
+                return set(json.load(f))
         except Exception:
             return set()
     return set()
@@ -51,98 +51,81 @@ def send_telegram(msg):
         data={
             "chat_id": chat_id,
             "text": msg,
-            "parse_mode": "HTML",
+            "parse_mode": "HTML"
         },
-        timeout=30,
+        timeout=30
     )
 
 
-def safe_text(value):
-    if value is None:
-        return ""
-    return str(value).strip()
+def clean_text(text):
+    return " ".join(text.split()).strip()
 
 
 def fetch_listings():
     r = requests.get(URL, cookies=COOKIES, headers=HEADERS, timeout=30)
     r.raise_for_status()
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    html = r.text
+    soup = BeautifulSoup(html, "html.parser")
+
     listings = []
 
-    # همه المان‌هایی که wire:snapshot دارند
-    snapshots = soup.find_all(attrs={"wire:snapshot": True})
+    # راه اصلی: پیدا کردن div هایی که id آنها با apartment- شروع می‌شود
+    apartment_divs = soup.select('div[id^="apartment-"]')
 
-    seen_snapshot_ids = set()
+    # اگر چیزی پیدا نشد، برای دیباگ یک تکه از HTML را چاپ کن
+    if not apartment_divs:
+        print("DEBUG: apartment divs not found")
+        print(html[:2000])
+        return listings
 
-    for snap in snapshots:
+    for div in apartment_divs:
         try:
-            raw = snap.get("wire:snapshot", "")
-            if not raw or '"item"' not in raw:
+            div_id = div.get("id", "").strip()  # مثل apartment-16008
+            if not div_id.startswith("apartment-"):
                 continue
 
-            data = json.loads(raw)
-            item = data.get("data", {}).get("item")
-
-            if not item:
+            apartment_id = div_id.replace("apartment-", "").strip()
+            if not apartment_id:
                 continue
 
-            apartment_id = safe_text(item.get("id"))
-            if not apartment_id or apartment_id in seen_snapshot_ids:
-                continue
+            # کل متن آگهی
+            text = clean_text(div.get_text(" ", strip=True))
 
-            seen_snapshot_ids.add(apartment_id)
+            # حذف علامت + آخر سطر اگر بود
+            if text.endswith("+"):
+                text = text[:-1].strip()
 
-            title = safe_text(item.get("title"))
-            street = safe_text(item.get("street"))
-            zip_code = safe_text(item.get("zipCode"))
-            district = safe_text(item.get("district"))
-            rent_net = safe_text(item.get("rentNet"))
-            area = safe_text(item.get("area"))
-            rooms = safe_text(item.get("rooms"))
-            deep_link = safe_text(item.get("deepLink"))
+            # پیدا کردن URL از deep link داخل snapshot یا هر href موجود
+            url = URL
 
-            full_url = deep_link if deep_link else URL
+            # اول سعی می‌کنیم href پیدا کنیم
+            a_tag = div.find("a", href=True)
+            if a_tag:
+                href = a_tag["href"].strip()
+                if href.startswith("/"):
+                    url = "https://www.inberlinwohnen.de" + href
+                elif href.startswith("http"):
+                    url = href
 
-            parts = []
-            if rooms:
-                parts.append(f"{rooms} Zimmer")
-            if area:
-                parts.append(f"{area} m²")
-            if rent_net:
-                parts.append(f"{rent_net} €")
+            # اگر href نبود، از متن HTML دنبال deepLink بگرد
+            if url == URL:
+                div_html = str(div)
+                m = re.search(r'"deepLink":"(https?:\/\/[^"]+)"', div_html)
+                if m:
+                    url = m.group(1).replace("\\/", "/")
 
-            top_line = " | ".join(parts)
-
-            address_parts = []
-            if street:
-                address_parts.append(street)
-            if zip_code or district:
-                address_parts.append(f"{zip_code} {district}".strip())
-
-            address_line = ", ".join([p for p in address_parts if p]).strip(", ")
-
-            full_title_parts = []
-            if title:
-                full_title_parts.append(title)
-            if top_line:
-                full_title_parts.append(top_line)
-            if address_line:
-                full_title_parts.append(address_line)
-
-            final_title = " | ".join(full_title_parts) if full_title_parts else f"Wohnung {apartment_id}"
-
-            wbs_text = f"{title} {street} {district}".lower()
-            wbs = "wbs" in wbs_text
+            wbs = "wbs" in text.lower()
 
             listings.append({
                 "id": apartment_id,
-                "title": final_title,
-                "url": full_url,
-                "wbs": wbs,
+                "title": text,
+                "url": url,
+                "wbs": wbs
             })
 
-        except Exception:
+        except Exception as e:
+            print(f"DEBUG item parse error: {e}")
             continue
 
     return listings
